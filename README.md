@@ -7,6 +7,8 @@ Extensión de navegador (Chrome/Brave/Edge, Manifest V3) que permite recorrer un
 - **Navegación por Tab**: `Tab` / `Shift+Tab` recorren los bloques, `Enter` lee, `Escape` sale.
 - **Miniventana flotante** con el texto actual, el estado (Procesando / Hablando / Listo) y el contador de bloques.
 
+![Miniventana flotante de Lector Accesible IA](docs/captura-miniventana.png)
+
 ## Estado verificado (12/11/2026)
 
 Prueba end-to-end en Brave con el ZIP de distribución:
