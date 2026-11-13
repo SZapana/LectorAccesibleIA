@@ -1,0 +1,91 @@
+LECTOR ACCESIBLE IA - CÓMO INSTALARLO
+====================================
+
+Lee este texto con el lector de voz del sistema o con esta misma extensión.
+
+REQUISITOS
+----------
+1. Brave, Chrome o Edge de escritorio.
+2. VoiceStudio abierto (https://127.0.0.1:3900). La voz "Don IA" ya está
+   clonada dentro de VoiceStudio.
+3. Python 3 instalado (solo para el proxy de voz).
+
+PASO 1 - Abrir VoiceStudio
+-------------------------
+Abre VoiceStudio y déjalo en ejecución. Es el motor de voz: la extensión
+le pide el audio y VoiceStudio lo sintetiza en tu equipo, sin internet.
+
+PASO 2 - Iniciar el proxy de voz
+--------------------------------
+En esta carpeta, haz doble clic en:
+
+    INICIAR-PROXY.bat
+
+Se abre una ventana negra con un servidor en http://127.0.0.1:3902.
+DEJA ESA VENTANA ABIERTA mientras uses la extensión.
+
+Por qué hace falta: las extensiones del navegador no pueden enviar su
+identidad web al motor local, y VoiceStudio rechaza esas peticiones por
+seguridad. El proxy las reenvía con la identidad correcta.
+
+Cómo verificar que funciona: abre en el navegador
+    http://127.0.0.1:3902/health
+Si aparece {"status": "ok", ...} el proxy está listo.
+
+PASO 3 - Instalar la extensión
+------------------------------
+1. Descomprime este ZIP en una carpeta permanente, por ejemplo
+   Documentos\LectorAccesibleIA
+2. Abre la página de extensiones:
+      Brave:  brave://extensions
+      Chrome: chrome://extensions
+      Edge:   edge://extensions
+3. Activa "Modo de desarrollador" (arriba a la derecha).
+4. Clic en "Cargar descomprimida" y elige la carpeta que descomprimiste
+   (la que contiene manifest.json).
+
+PASO 4 - Usar la extensión
+--------------------------
+1. Abre cualquier página web.
+2. Pulsa Alt+Shift+N (o haz clic en el icono de la extensión).
+   Se activa el MODO NAVEGACIÓN y aparece una miniventana abajo a la derecha.
+3. Atajos dentro del modo navegación:
+      Tab        siguiente bloque
+      Shift+Tab  bloque anterior
+      Enter      leer el bloque en voz alta con Don IA
+      Escape     salir del modo navegación
+
+La miniventana muestra el texto, el estado (Procesando / Hablando / Listo)
+y el bloque actual (por ejemplo 3 / 12).
+
+TIEMPOS DE ESPERA
+-----------------
+La síntesis corre en la CPU de tu equipo: la primera lectura puede tardar
+entre 1 y 3 minutos, y las siguientes entre 20 y 150 segundos. La
+miniventana queda en "Procesando voz..." mientras tanto.
+
+La voz es "Don IA" (df54e121), clonada localmente en VoiceStudio.
+No se usa la voz del sistema ni ninguna voz de Jarvis.
+
+SI NO FUNCIONA
+--------------
+"Error: TypeError: Failed to fetch"
+    El proxy no está corriendo. Abre INICIAR-PROXY.bat y revisa que
+    http://127.0.0.1:3902/health responda.
+
+"Proxy HTTP 503" o "Error: 503"
+    VoiceStudio todavía está arrancando o el motor no está listo.
+    Espera un minuto y vuelve a intentarlo.
+
+No se oye nada pero el estado dice "Hablando"
+    Revisa que VoiceStudio siga abierto. Si el navegador suspende el audio,
+    haz clic en la página y pulsa Enter de nuevo.
+
+La extensión no funciona en páginas internas del navegador
+(chrome://...), en la tienda de extensiones ni en PDF.
+
+NOTA
+----
+Al ser una extensión sin firmar, el navegador muestra el aviso de "modo
+desarrollador". Es normal y no afecta el funcionamiento. Para uso diario
+puedes crear un acceso directo a la página de la extensión.
