@@ -4,7 +4,7 @@ Proxy local para VoiceStudio.
 Recibe peticiones de la extensión (sin Origin válido) y las reenvía a VoiceStudio
 con el header Origin correcto.
 """
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import json
 import urllib.request
 import urllib.error
@@ -63,6 +63,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             print("[PROXY] Enviando a VoiceStudio...")
             with urllib.request.urlopen(req, timeout=300) as resp:
                 print(f"[PROXY] VoiceStudio respondió: {resp.status}")
+                audio = resp.read()
                 self.send_response(resp.status)
                 for header, value in resp.headers.items():
                     if header.lower() not in ('content-encoding', 'transfer-encoding',
@@ -74,8 +75,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Expose-Headers', '*')
                 self.end_headers()
-                self.wfile.write(resp.read())
-                
+                self.wfile.write(audio)
+
+        except (BrokenPipeError, ConnectionResetError) as e:
+            # La extension aborta la peticion cuando el usuario se mueve de
+            # bloque. No es un error: ya se respondio lo que se pudo.
+            print(f"[PROXY] Cliente desconectado: {type(e).__name__}")
         except urllib.error.HTTPError as e:
             print(f"[PROXY] HTTPError: {e.code}")
             self.send_response(e.code)
@@ -95,7 +100,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         print(f"[PROXY] {format % args}")
 
 if __name__ == '__main__':
-    server = HTTPServer(('127.0.0.1', 3902), ProxyHandler)
+    # ThreadingHTTPServer: cada peticion en su hilo. Con un servidor de un
+    # solo hilo, una sintesis en curso (40-240 s) bloqueaba hasta /health y
+    # hacia cola detras de la peticion anterior.
+    server = ThreadingHTTPServer(('127.0.0.1', 3902), ProxyHandler)
+    server.daemon_threads = True
     print(f"[PROXY] Iniciado en http://127.0.0.1:3902")
     print(f"[PROXY] Forwarding a VoiceStudio: http://127.0.0.1:3900/v1/audio/speech")
     try:

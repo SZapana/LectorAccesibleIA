@@ -279,27 +279,46 @@ try {
 
     const txt = `${b.rol ? b.rol + '. ' : ''}${b.txt}`;
     const fullTxt = b.rol ? `${b.rol}. ${b.txt}` : b.txt;
-    mostrarHablar(fullTxt.slice(0, 200), true);
+    pedirVoz(txt, fullTxt);
+  }
+
+  // ── Solicitud de voz (antirrebote) ─────────────────────────────────────
+  // El motor local procesa una sintesis por vez y en CPU tarda 40-240 s. Si
+  // cada pulsacion de Tab encolara su propia sintesis, el usuario oiria los
+  // audios viejos minutos despues, uno atras de otro. El antirrebote colapsa
+  // la rafaga en una sola peticion: la del bloque donde se detuvo.
+  const DEBOUNCE_MS = 700;
+  let hablarDebounce = null;
+
+  function pedirVoz(txt, panelTexto, onDone) {
+    if (hablarDebounce) { clearTimeout(hablarDebounce); hablarDebounce = null; }
     const seq = ++reqSeq;
-    chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: txt }, (resp) => {
-      if (seq !== reqSeq) return; // hay una peticion mas reciente: descartar
-      if (resp?.ok) {
-        mostrarHablar(fullTxt.slice(0, 200), false);
-        // Auto-limpiar después de 25s
-        if (hablarTimer) clearTimeout(hablarTimer);
-        hablarTimer = setTimeout(() => finHablar(), 25000);
-      } else {
-        // Error - mostrar solo 5s
-        if (miniventana) {
-          const dot = miniventana.querySelector('#lector-mini-dot');
-          const status = miniventana.querySelector('#lector-mini-status');
-          dot.style.background = '#ef4444';
-          status.textContent = 'Error: ' + (resp?.error || 'desconocido');
+    const fullTxt = panelTexto ?? txt;
+    mostrarHablar(fullTxt.slice(0, 200), true);
+    hablarDebounce = setTimeout(() => {
+      hablarDebounce = null;
+      chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: txt, seq }, (resp) => {
+        if (seq !== reqSeq) { onDone?.({ response: 'error', error: 'superseded' }); return; }
+        if (resp?.ok) {
+          mostrarHablar(fullTxt.slice(0, 200), false);
+          // Auto-limpiar después de 25s
+          if (hablarTimer) clearTimeout(hablarTimer);
+          hablarTimer = setTimeout(() => finHablar(), 25000);
+          onDone?.({ response: 'ok' });
+        } else {
+          // Error - mostrar solo 5s
+          if (miniventana) {
+            const dot = miniventana.querySelector('#lector-mini-dot');
+            const status = miniventana.querySelector('#lector-mini-status');
+            dot.style.background = '#ef4444';
+            status.textContent = 'Error: ' + (resp?.error || 'desconocido');
+          }
+          if (hablarTimer) clearTimeout(hablarTimer);
+          hablarTimer = setTimeout(() => finHablar(), 5000);
+          onDone?.({ response: 'error', error: resp?.error });
         }
-        if (hablarTimer) clearTimeout(hablarTimer);
-        hablarTimer = setTimeout(() => finHablar(), 5000);
-      }
-    });
+      });
+    }, DEBOUNCE_MS);
   }
 
   function mover(d) {
@@ -346,6 +365,7 @@ try {
     if (!activo) return;
     activo = false;
     if (hablarTimer) { clearTimeout(hablarTimer); hablarTimer = null; }
+    if (hablarDebounce) { clearTimeout(hablarDebounce); hablarDebounce = null; }
     hablarTexto = '';
     hablando = false;
     window.__lectorNavObs?.disconnect();
@@ -401,19 +421,8 @@ try {
         }
         const b = bloques[indice];
         const txt = b ? (b.rol ? `${b.rol}. ${b.txt}` : b.txt) : String(payload || '');
-        mostrarHablar(txt.slice(0, 200), true);
-        const seq = ++reqSeq;
-        chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: String(payload || '') }, (resp) => {
-          if (seq !== reqSeq) return; // hay una peticion mas reciente: descartar
-          if (resp?.ok) {
-            mostrarHablar(txt.slice(0, 200), false);
-            if (hablarTimer) clearTimeout(hablarTimer);
-            hablarTimer = setTimeout(() => finHablar(), 25000);
-          } else {
-            if (hablarTimer) clearTimeout(hablarTimer);
-            hablarTimer = setTimeout(() => finHablar(), 5000);
-          }
-          window.postMessage({ target: 'page', response: resp?.ok ? 'ok' : 'error', error: resp?.error, id }, '*');
+        pedirVoz(String(payload || ''), txt, (r) => {
+          window.postMessage({ target: 'page', response: r.response, error: r.error, id }, '*');
         });
       } else if (action === 'enfocar') {
         enfocar(payload);

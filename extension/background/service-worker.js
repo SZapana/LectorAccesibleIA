@@ -9,12 +9,38 @@ const TTS_MODEL = 'tts-1';
 
 let offscreenPort = null;
 
+// Una sola sintesis activa a la vez. El motor local procesa una por vez
+// (40-240 s en CPU), asi que si el usuario sigue recorriendo bloques cada
+// peticion queda encolada y oiria audios viejos minutos despues. Al llegar
+// una peticion nueva se aborta la anterior y su audio no se reproduce.
+let jobCounter = 0;
+let currentJob = null;
+
+function abortCurrentJob() {
+  if (!currentJob) return;
+  try { currentJob.controller.abort(); } catch {}
+}
+
+function stopCurrentAudio() {
+  try { if (offscreenPort) offscreenPort.postMessage({ type: 'STOP' }); } catch {}
+}
+
+let diagLines = [];
+let diagReady = null;
+
 function diag(msg) {
   const entry = new Date().toISOString().slice(11, 23) + ' ' + msg;
-  chrome.storage.local.get('diag').then((d) => {
-    const arr = Array.isArray(d.diag) ? d.diag : [];
-    arr.push(entry);
-    chrome.storage.local.set({ diag: arr.slice(-60) });
+  // Las escrituras se encadenan: con get/set concurrentes (varias peticiones
+  // en vuelo) cada escritura pisaba a la anterior y se perdian entradas.
+  if (!diagReady) {
+    diagReady = chrome.storage.local.get('diag')
+      .then((d) => { diagLines = Array.isArray(d.diag) ? d.diag : []; })
+      .catch(() => { diagLines = []; });
+  }
+  diagReady = diagReady.then(() => {
+    diagLines.push(entry);
+    if (diagLines.length > 60) diagLines = diagLines.slice(-60);
+    return chrome.storage.local.set({ diag: diagLines.slice() });
   }).catch(() => {});
 }
 
@@ -62,7 +88,7 @@ function connectOffscreen() {
   });
 }
 
-async function synthesize(text) {
+async function synthesize(text, signal) {
   diag('synthesize start len=' + text.length);
   const t0 = Date.now();
   const body = {
@@ -76,6 +102,7 @@ async function synthesize(text) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
   const buf = await res.arrayBuffer();
@@ -99,8 +126,13 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
-async function playAudio(pcmBuffer) {
+async function playAudio(pcmBuffer, jobId) {
   const port = await connectOffscreen();
+  // Si mientras se sintetizaba el usuario se movio de bloque, este audio ya no
+  // sirve: se descarta sin reproducir.
+  if (jobId != null && currentJob?.id !== jobId) return false;
+  // Corta el audio anterior si todavia suena.
+  try { port.postMessage({ type: 'STOP' }); } catch {}
   return new Promise((resolve, reject) => {
     const id = Math.random().toString(36).slice(2);
     const handler = (msg) => {
@@ -126,16 +158,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case 'NAV_HABLAR': {
           const text = String(msg.texto ?? '').slice(0, 2000);
           if (!text) { sendResponse({ ok: false }); return; }
-          diag('NAV_HABLAR recibido');
-          const pcm = await synthesize(text);
+          const job = { id: ++jobCounter, controller: new AbortController() };
+          abortCurrentJob();
+          currentJob = job;
+          stopCurrentAudio();
+          diag(`NAV_HABLAR job=${job.id} len=${text.length}`);
+          const pcm = await synthesize(text, job.controller.signal);
+          if (currentJob?.id !== job.id) {
+            diag(`job ${job.id} descartado: el usuario se movio de bloque`);
+            sendResponse({ ok: false, superseded: true });
+            return;
+          }
           // Avisar que ya se esta reproduciendo (no al terminar la sintesis)
           const tabId = msg.tabId ?? sender.tab?.id;
           if (tabId) {
             try { await chrome.tabs.sendMessage(tabId, { type: 'NAV_STATUS', status: 'hablando' }); } catch {}
           }
           diag('playAudio start');
-          await playAudio(pcm);
+          await playAudio(pcm, job.id);
           diag('playAudio fin');
+          if (currentJob?.id !== job.id) { sendResponse({ ok: false, superseded: true }); return; }
           sendResponse({ ok: true });
           return;
         }
@@ -143,6 +185,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'tipo desconocido' });
       }
     } catch (e) {
+      if (e?.name === 'AbortError') {
+        diag('sintesis cancelada: peticion mas reciente');
+        sendResponse({ ok: false, superseded: true });
+        return;
+      }
       diag('ERROR ' + String(e));
       sendResponse({ ok: false, error: String(e) });
     }

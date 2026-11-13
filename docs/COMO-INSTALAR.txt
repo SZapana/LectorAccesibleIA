@@ -50,13 +50,21 @@ PASO 4 - Usar la extensión
 2. Pulsa Alt+Shift+N (o haz clic en el icono de la extensión).
    Se activa el MODO NAVEGACIÓN y aparece una miniventana abajo a la derecha.
 3. Atajos dentro del modo navegación:
-      Tab        siguiente bloque
+      Tab        siguiente bloque (la miniventana lo muestra y Don IA lo
+                lee cuando te detienes)
       Shift+Tab  bloque anterior
-      Enter      leer el bloque en voz alta con Don IA
+      Enter      abrir el enlace o pulsar el botón donde estás parado
       Escape     salir del modo navegación
 
 La miniventana muestra el texto, el estado (Procesando / Hablando / Listo)
 y el bloque actual (por ejemplo 3 / 12).
+
+NAVEGAR NO ACUMULA VOCES
+------------------------
+El motor local procesa una síntesis a la vez. Si recorres varios bloques
+con Tab, la extensión NO encola una voz por bloque: espera a que te
+detengas (unos 0,7 s) y sintetiza solo el bloque donde paraste. Si te mueves
+otra vez mientras sintetiza, el audio anterior se descarta y no lo oirás.
 
 TIEMPOS DE ESPERA
 -----------------

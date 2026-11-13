@@ -4,10 +4,29 @@ Extensión de navegador (Chrome/Brave/Edge, Manifest V3) que permite recorrer un
 
 - **Voz**: Don IA (`df54e121`), clonada dentro de VoiceStudio en el equipo del usuario.
 - **Sin nube**: ni el texto ni el audio salen de la computadora.
-- **Navegación por Tab**: `Tab` / `Shift+Tab` recorren los bloques, `Enter` lee, `Escape` sale.
+- **Navegación por Tab**: `Tab` / `Shift+Tab` recorren los bloques, `Enter` activa el enlace o botón donde estás parado, `Escape` sale.
 - **Miniventana flotante** con el texto actual, el estado (Procesando / Hablando / Listo) y el contador de bloques.
 
 ![Miniventana flotante de Lector Accesible IA](docs/captura-miniventana.png)
+
+## v1.0.1 — navegar ya no acumula voces
+
+El motor local procesa **una** síntesis a la vez y en CPU tarda 40-240 s. En la v1.0.0, cada pulsación de `Tab` encolaba su propia síntesis: cuatro `Tab` seguidos dejaban **5 voces en la cola** (medido: `5 synthesize start`, `0 completadas`) y el usuario terminaba oyendo audios viejos, uno tras otro, minutos más tarde.
+
+La v1.0.1 lo corrige en tres capas:
+
+| Capa | Qué hace |
+|------|----------|
+| `content/navegacion.js` | Antirrebote de 0,7 s: una ráfaga de `Tab` se colapsa en **una sola** petición, la del bloque donde el usuario se detuvo. |
+| `background/service-worker.js` | Un trabajo activo a la vez: al llegar una petición nueva se aborta la anterior y su audio **no se reproduce**. |
+| `proxy-tts.py` | `ThreadingHTTPServer`: el proxy deja de bloquearse con una síntesis en curso (`/health` respondía solo al terminar) y sobrevive a la desconexión del cliente. |
+
+Verificado en Brave contra `https://muni-theta.vercel.app/` (102 bloques detectados):
+
+```
+4 Tab en 2,4 s   ->  1 petición en cola  (antes: 5)
+/health durante la síntesis -> {"status": "ok", ...}   (antes: se bloqueaba)
+```
 
 ## Estado verificado (12/11/2026)
 
@@ -24,8 +43,9 @@ miniventana: Procesando voz... -> ▶ Hablando -> Listo
 ## Descarga
 
 - Repositorio: <https://github.com/SZapana/LectorAccesibleIA>
-- Release `v1.0.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
-- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.0/LectorAccesibleIA-1.0.0.zip>
+- Release `v1.0.1`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.1>
+- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.1/LectorAccesibleIA-1.0.1.zip>
+- Release `v1.0.0` (anterior): <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
 
 ## Estructura
 
