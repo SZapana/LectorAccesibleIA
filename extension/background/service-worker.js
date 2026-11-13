@@ -1,5 +1,5 @@
 /**
- * Service Worker: síntesis simple via VoiceStudio (Jarvis voice, PCM 24kHz).
+ * Service Worker: sintesis simple via VoiceStudio (voz Don IA, PCM 24kHz).
  * Basado en voice-moderator que FUNCIONA.
  */
 
@@ -9,16 +9,26 @@ const TTS_MODEL = 'tts-1';
 
 let offscreenPort = null;
 
-// Una sola sintesis activa a la vez. El motor local procesa una por vez
-// (40-240 s en CPU), asi que si el usuario sigue recorriendo bloques cada
-// peticion queda encolada y oiria audios viejos minutos despues. Al llegar
-// una peticion nueva se aborta la anterior y su audio no se reproduce.
-let jobCounter = 0;
-let currentJob = null;
+// El motor local procesa UNA sintesis por vez (40-240 s en CPU) y NO cancela
+// el trabajo si el cliente aborta la conexion: el job sigue ocupando el
+// worker. Por eso no se encolan peticiones: hay una sola en curso y, como
+// mucho, una pendiente que se sobreescribe con la mas reciente. Asi el
+// motor nunca acumula jobs abandonados y el usuario solo oye el bloque
+// donde se detuvo.
+let sintetizando = false;
+// El estado de navegacion es POR PESTANA: el numero de secuencia y el flag
+// de cancelacion viven en el content script de cada pagina. Con un unico
+// contador global, dos pestañas abiertas se invalidarian entre si.
+const porTab = new Map();  // tabId -> { seq, cancelado, pendiente }
 
-function abortCurrentJob() {
-  if (!currentJob) return;
-  try { currentJob.controller.abort(); } catch {}
+function estadoTab(tabId) {
+  const id = tabId ?? -1;
+  if (!porTab.has(id)) porTab.set(id, { seq: 0, cancelado: false, pendiente: null, reproduciendo: false });
+  return porTab.get(id);
+}
+
+function resolver(job, resp) {
+  try { job.resolve(resp); } catch {}
 }
 
 function stopCurrentAudio() {
@@ -88,7 +98,7 @@ function connectOffscreen() {
   });
 }
 
-async function synthesize(text, signal) {
+async function synthesize(text) {
   diag('synthesize start len=' + text.length);
   const t0 = Date.now();
   const body = {
@@ -98,16 +108,26 @@ async function synthesize(text, signal) {
     response_format: 'pcm',
     stream_format: 'audio',
   };
-  const res = await fetch('http://127.0.0.1:3902/v1/audio/speech', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
-  const buf = await res.arrayBuffer();
-  diag(`synthesize end ${buf.byteLength} bytes ${Date.now() - t0}ms`);
-  return buf;
+  // El motor puede rechazar con 429 cuando el pool esta saturado (control de
+  // admision de VoiceStudio). Se reintenta en vez de fallar: la espera es
+  // parte del funcionamiento, no un error.
+  for (let intento = 1; ; intento++) {
+    const res = await fetch('http://127.0.0.1:3902/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 && intento <= 4) {
+      const espera = Math.min(Number(res.headers.get('Retry-After') || 30) || 30, 90);
+      diag(`sintesis rechazada (429), reintento ${intento} en ${espera}s`);
+      await new Promise(r => setTimeout(r, espera * 1000));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    diag(`synthesize end ${buf.byteLength} bytes ${Date.now() - t0}ms`);
+    return buf;
+  }
 }
 
 /**
@@ -126,11 +146,8 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
-async function playAudio(pcmBuffer, jobId) {
+async function playAudio(pcmBuffer) {
   const port = await connectOffscreen();
-  // Si mientras se sintetizaba el usuario se movio de bloque, este audio ya no
-  // sirve: se descarta sin reproducir.
-  if (jobId != null && currentJob?.id !== jobId) return false;
   // Corta el audio anterior si todavia suena.
   try { port.postMessage({ type: 'STOP' }); } catch {}
   return new Promise((resolve, reject) => {
@@ -144,6 +161,59 @@ async function playAudio(pcmBuffer, jobId) {
   });
 }
 
+/**
+ * Bomba de sintesis: una sola en curso y, como mucho, una pendiente.
+ * La pendiente se sobreescribe con el texto mas reciente, de modo que el
+ * motor nunca recibe mas de un trabajo pendiente (el motor no cancela los
+ * jobs si el cliente aborta, asi que acumularlos multiplica la espera).
+ */
+async function bombear() {
+  if (sintetizando) return;
+  sintetizando = true;
+  try {
+    for (;;) {
+      // Se toma el primer trabajo pendiente (el orden del Map es el de
+      // llegada). Los seq son por pestana, asi que no se comparan entre si.
+      let job = null;
+      for (const st of porTab.values()) { if (st.pendiente) { job = st.pendiente; break; } }
+      if (!job) break;
+      const st = estadoTab(job.tabId);
+      st.pendiente = null;
+      try {
+        diag(`sintetizando seq=${job.seq} len=${job.text.length}`);
+        const pcm = await synthesize(job.text);
+        const st2 = estadoTab(job.tabId);
+        // Si el usuario se movio de bloque mientras sintetizabamos, este audio
+        // ya no es el que quiere: se descarta sin reproducir. La comprobacion
+        // de `pendiente` es por pestana: que otra pestana pida voz no
+        // invalida el audio de esta.
+        const hayReemplazo = st2.pendiente && st2.pendiente.tabId === job.tabId;
+        if (st2.cancelado || hayReemplazo || job.seq !== st2.seq) {
+          diag('audio descartado: el usuario se movio de bloque');
+          resolver(job, { ok: false, superseded: true });
+          continue;
+        }
+        // Avisar que ya se esta reproduciendo (no al terminar la sintesis)
+        const tabId = job.tabId;
+        if (tabId) {
+          try { await chrome.tabs.sendMessage(tabId, { type: 'NAV_STATUS', status: 'hablando' }); } catch {}
+        }
+        diag('playAudio start');
+        st2.reproduciendo = true;
+        await playAudio(pcm);
+        st2.reproduciendo = false;
+        diag('playAudio fin');
+        resolver(job, { ok: true });
+      } catch (e) {
+        diag('ERROR ' + String(e));
+        resolver(job, { ok: false, error: String(e) });
+      }
+    }
+  } finally {
+    sintetizando = false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
@@ -155,41 +225,54 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
           return;
         }
+        case 'NAV_SEQ': {
+          // El content script avisa al instante en que el usuario se mueve:
+          // el audio que este sintetizando ya no se reproduce.
+          const st = estadoTab(msg.tabId ?? sender.tab?.id);
+          const nuevo = Number(msg.seq ?? 0);
+          // Si el audio del bloque anterior aun esta sonando, se corta: el
+          // usuario ya se movio y no debe seguir oyendose el bloque viejo.
+          if (nuevo !== st.seq && st.reproduciendo) {
+            stopCurrentAudio();
+            st.reproduciendo = false;
+            diag(`audio cortado: el usuario paso al seq=${nuevo}`);
+          }
+          st.seq = nuevo;
+          st.cancelado = false;
+          sendResponse({ ok: true });
+          return;
+        }
+        case 'NAV_CANCELAR': {
+          // El usuario salio del modo: se descarta lo pendiente y se invalida
+          // la sintesis en curso, para que no suene nada al terminar.
+          const st = estadoTab(msg.tabId ?? sender.tab?.id);
+          st.cancelado = true;
+          if (st.pendiente) { resolver(st.pendiente, { ok: false, superseded: true }); st.pendiente = null; }
+          st.reproduciendo = false;
+          stopCurrentAudio();
+          diag('NAV_CANCELAR: audio en curso invalidado');
+          sendResponse({ ok: true });
+          return;
+        }
         case 'NAV_HABLAR': {
           const text = String(msg.texto ?? '').slice(0, 2000);
           if (!text) { sendResponse({ ok: false }); return; }
-          const job = { id: ++jobCounter, controller: new AbortController() };
-          abortCurrentJob();
-          currentJob = job;
-          stopCurrentAudio();
-          diag(`NAV_HABLAR job=${job.id} len=${text.length}`);
-          const pcm = await synthesize(text, job.controller.signal);
-          if (currentJob?.id !== job.id) {
-            diag(`job ${job.id} descartado: el usuario se movio de bloque`);
-            sendResponse({ ok: false, superseded: true });
-            return;
-          }
-          // Avisar que ya se esta reproduciendo (no al terminar la sintesis)
+          const seq = Number(msg.seq ?? 0);
           const tabId = msg.tabId ?? sender.tab?.id;
-          if (tabId) {
-            try { await chrome.tabs.sendMessage(tabId, { type: 'NAV_STATUS', status: 'hablando' }); } catch {}
-          }
-          diag('playAudio start');
-          await playAudio(pcm, job.id);
-          diag('playAudio fin');
-          if (currentJob?.id !== job.id) { sendResponse({ ok: false, superseded: true }); return; }
-          sendResponse({ ok: true });
+          const st = estadoTab(tabId);
+          st.cancelado = false;
+          // Si esa pestana ya tiene algo pendiente, se resuelve como superado:
+          // solo queda la peticion mas reciente.
+          if (st.pendiente) resolver(st.pendiente, { ok: false, superseded: true });
+          st.pendiente = { text, seq, tabId, resolve: sendResponse };
+          diag(`NAV_HABLAR seq=${seq} len=${text.length}`);
+          bombear();
           return;
         }
         default:
           sendResponse({ ok: false, error: 'tipo desconocido' });
       }
     } catch (e) {
-      if (e?.name === 'AbortError') {
-        diag('sintesis cancelada: peticion mas reciente');
-        sendResponse({ ok: false, superseded: true });
-        return;
-      }
       diag('ERROR ' + String(e));
       sendResponse({ ok: false, error: String(e) });
     }

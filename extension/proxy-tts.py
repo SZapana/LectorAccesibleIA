@@ -61,7 +61,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             )
             
             print("[PROXY] Enviando a VoiceStudio...")
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            # 600 s: en CPU una sintesis puede tardar 240 s o mas si el modelo
+            # se recarga. Con 300 s el proxy cortaba sintesis legitimas.
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 print(f"[PROXY] VoiceStudio respondió: {resp.status}")
                 audio = resp.read()
                 self.send_response(resp.status)

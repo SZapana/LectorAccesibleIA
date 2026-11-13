@@ -1,51 +1,88 @@
 # Lector Accesible IA
 
-Extensión de navegador (Chrome/Brave/Edge, Manifest V3) que permite recorrer una página web **con el teclado** y escucharla en voz alta usando una **voz clonada local**.
+Extensión de navegador (Chrome/Brave/Edge, Manifest V3) que recorre **cualquier página web** con el teclado y la lee en voz alta con una **voz clonada local**.
 
 - **Voz**: Don IA (`df54e121`), clonada dentro de VoiceStudio en el equipo del usuario.
 - **Sin nube**: ni el texto ni el audio salen de la computadora.
-- **Navegación por Tab**: `Tab` / `Shift+Tab` recorren los bloques, `Enter` activa el enlace o botón donde estás parado, `Escape` sale.
+- **Toda la web**: el content script se inyecta en `<all_urls>`, no en una página concreta.
+- **Navegación por `Tab`**: cada bloque se resalta, se muestra en la miniventana y se narra al detenerte.
+- **Imágenes**: se narran por su etiqueta accesible (`alt`, `aria-label` o `title`), p. ej. *"Imagen. Wikipedia"*.
 - **Miniventana flotante** con el texto actual, el estado (Procesando / Hablando / Listo) y el contador de bloques.
 
 ![Miniventana flotante de Lector Accesible IA](docs/captura-miniventana.png)
 
-## v1.0.1 — navegar ya no acumula voces
+## Atajos
 
-El motor local procesa **una** síntesis a la vez y en CPU tarda 40-240 s. En la v1.0.0, cada pulsación de `Tab` encolaba su propia síntesis: cuatro `Tab` seguidos dejaban **5 voces en la cola** (medido: `5 synthesize start`, `0 completadas`) y el usuario terminaba oyendo audios viejos, uno tras otro, minutos más tarde.
+| Tecla | Acción |
+|---|---|
+| `Tab` | Bloque siguiente (se narra al detenerte ~0,7 s) |
+| `Shift+Tab` | Bloque anterior |
+| `Enter` | Activa el enlace o botón del bloque; en un campo de texto, entra a escribir |
+| `Escape` | Sale del modo navegación |
+| `Alt+Shift+N` | Activa o desactiva el modo navegación |
 
-La v1.0.1 lo corrige en tres capas:
+## Cobertura multisitio (medida el 13/11/2026)
+
+El mismo código se probó en seis sitios con motores distintos. El inventario es lo que la extensión detecta como bloque navegable:
+
+| Sitio | Tecnología | Bloques | Imágenes |
+|---|---|---|---|
+| `muni-theta.vercel.app` | React/Vite | 107 | 0 |
+| `es.wikipedia.org/wiki/Ilave` | MediaWiki | 322 | 13 |
+| `news.ycombinator.com` | HTML plano | 292 | 0 |
+| `developer.mozilla.org` | MDN (docs largas) | 904 | 33 |
+| `github.com/SZapana/LectorAccesibleIA` | SPA | 184 | 4 |
+| `mozilla.org/es` | portal | 174 | 6 |
+
+Los `iframe` no se narran (el content script corre con `all_frames: false`). En los seis sitios medidos, ningún `iframe` tenía contenido textual: el único encontrado (municipal) estaba vacío.
+
+## v1.1.0 — cola coalescente y voz que se corta al cambiar de bloque
+
+La v1.0.1 abortaba la petición anterior al llegar una nueva. Se midió que **VoiceStudio no cancela el trabajo cuando el cliente se desconecta**: una petición abortada a los 5 s seguida de otra tardó **293 s** (150 s del trabajo abandonado + la nueva). Abortar no ahorraba nada y acumulaba trabajos en el motor.
+
+La v1.1.0 cambia el diseño:
 
 | Capa | Qué hace |
 |------|----------|
-| `content/navegacion.js` | Antirrebote de 0,7 s: una ráfaga de `Tab` se colapsa en **una sola** petición, la del bloque donde el usuario se detuvo. |
-| `background/service-worker.js` | Un trabajo activo a la vez: al llegar una petición nueva se aborta la anterior y su audio **no se reproduce**. |
-| `proxy-tts.py` | `ThreadingHTTPServer`: el proxy deja de bloquearse con una síntesis en curso (`/health` respondía solo al terminar) y sobrevive a la desconexión del cliente. |
+| `content/navegacion.js` | Antirrebote de 0,7 s por bloque; margen de 1,8 s al activar el modo para que una `Tab` inmediata no gaste una síntesis; al salir del modo invalida el audio en curso. |
+| `background/service-worker.js` | **Una** síntesis en curso y, como mucho, **una** pendiente por pestaña, que se sobrescribe con la más reciente. Si el usuario se movió, el audio se descarta. El estado (`seq`, cancelación) es por pestaña, no global. |
+| `proxy-tts.py` | `ThreadingHTTPServer`: `/health` responde aunque haya una síntesis en curso y el proxy sobrevive a la desconexión del cliente. |
 
-Verificado en Brave contra `https://muni-theta.vercel.app/` (102 bloques detectados):
-
-```
-4 Tab en 2,4 s   ->  1 petición en cola  (antes: 5)
-/health durante la síntesis -> {"status": "ok", ...}   (antes: se bloqueaba)
-```
-
-## Estado verificado (12/11/2026)
-
-Prueba end-to-end en Brave con el ZIP de distribución:
+Medido en Brave contra el sitio municipal (107 bloques), ráfaga de 4 `Tab`:
 
 ```
-synthesize start len=167
-synthesize end 530052 bytes 59393ms
-playAudio start
-playAudio fin          (11,4 s = 264 810 muestras a 24 kHz)
+antes (v1.0.1): 5 peticiones encoladas en el motor
+ahora (v1.1.0): 1 sola petición (seq=5); el audio del bloque 5/107 es el único que suena
+/health durante la síntesis -> {"status": "ok", ...}
 miniventana: Procesando voz... -> ▶ Hablando -> Listo
 ```
+
+## Estado verificado (13/11/2026)
+
+Prueba end-to-end en Brave con la extensión cargada descomprimida (`test-verify.cjs`):
+
+```
+[ráfaga de 4 Tab]
+  NAV_HABLAR seq=5 len=49          <- una sola petición al motor
+  synthesize end 157200 bytes 162445ms
+  playAudio start -> playAudio fin
+  miniventana: Procesando voz... -> ▶ Hablando -> Listo
+
+[activar sin Tab]
+  NAV_HABLAR seq=1 len=37
+  synthesize end 123620 bytes 140428ms
+  playAudio start -> playAudio fin
+  miniventana: Procesando voz... -> ▶ Hablando -> Listo
+```
+
+`test-smoke.cjs` verifica además entrar/salir/reentrar: panel y anillo aparecen, desaparecen y vuelven a aparecer, el service worker recibe `NAV_CANCELAR` y no hay errores de consola.
 
 ## Descarga
 
 - Repositorio: <https://github.com/SZapana/LectorAccesibleIA>
-- Release `v1.0.1`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.1>
-- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.1/LectorAccesibleIA-1.0.1.zip>
-- Release `v1.0.0` (anterior): <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
+- Release `v1.1.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.1.0>
+- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.1.0/LectorAccesibleIA-1.1.0.zip>
+- Release anterior `v1.0.1`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.1>
 
 ## Estructura
 

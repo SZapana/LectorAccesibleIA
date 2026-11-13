@@ -1,6 +1,6 @@
 # Política de privacidad de Lector Accesible IA
 
-**Versión 1.0.1 — 12 de noviembre de 2026**
+**Versión 1.1.0 — 13 de noviembre de 2026**
 
 ## Resumen
 
@@ -8,10 +8,11 @@ Lector Accesible IA no recopila, transmite, almacena en servidores ni vende ning
 
 ## Qué hace la extensión
 
-1. Lee el texto de la página web que está abierta en el navegador.
+1. Lee el texto de la página web que está abierta en el navegador, en cualquier sitio (el script se inyecta en `<all_urls>`).
 2. Lo divide en bloques y permite recorrerlos con el teclado.
-3. Envía el texto del bloque seleccionado a un motor de voz **local** (VoiceStudio), que corre en la computadora de la persona usuaria.
-4. Reproduce el audio sintetizado.
+3. Cuando un bloque es una imagen, usa su etiqueta accesible (`alt`, `aria-label` o `title`) como texto del bloque.
+4. Envía el texto del bloque seleccionado a un motor de voz **local** (VoiceStudio), que corre en la computadora de la persona usuaria.
+5. Reproduce el audio sintetizado.
 
 ## Dónde se procesan los datos
 

@@ -46,31 +46,51 @@ PASO 3 - Instalar la extensión
 
 PASO 4 - Usar la extensión
 --------------------------
-1. Abre cualquier página web.
+1. Abre CUALQUIER página web: no está atada a un sitio concreto.
 2. Pulsa Alt+Shift+N (o haz clic en el icono de la extensión).
    Se activa el MODO NAVEGACIÓN y aparece una miniventana abajo a la derecha.
 3. Atajos dentro del modo navegación:
       Tab        siguiente bloque (la miniventana lo muestra y Don IA lo
-                lee cuando te detienes)
+                lee cuando te detienes unos 0,7 s)
       Shift+Tab  bloque anterior
-      Enter      abrir el enlace o pulsar el botón donde estás parado
+      Enter      abrir el enlace o pulsar el botón donde estás parado;
+                en un campo de texto, entrar a escribir
       Escape     salir del modo navegación
 
 La miniventana muestra el texto, el estado (Procesando / Hablando / Listo)
 y el bloque actual (por ejemplo 3 / 12).
 
+IMÁGENES
+--------
+Cuando el bloque es una imagen, se narra su etiqueta accesible (el texto
+alternativo). Por ejemplo, una foto con alt="Presidente de la comunidad"
+se oye como "Imagen. Presidente de la comunidad".
+
+PÁGINAS GRANDES Y SITIOS DINÁMICOS
+----------------------------------
+La extensión detecta hasta 1200 bloques por página (una página de
+documentación larga puede tener más de 900). En sitios que cargan
+contenido mientras se navega, la lista se actualiza sola cada 0,3 s.
+
+Los iframes no se narran (solo el documento principal de la página).
+
 NAVEGAR NO ACUMULA VOCES
 ------------------------
-El motor local procesa una síntesis a la vez. Si recorres varios bloques
-con Tab, la extensión NO encola una voz por bloque: espera a que te
-detengas (unos 0,7 s) y sintetiza solo el bloque donde paraste. Si te mueves
-otra vez mientras sintetiza, el audio anterior se descarta y no lo oirás.
+El motor local procesa una síntesis a la vez y NO cancela el trabajo si la
+extensión abandona la petición. Por eso la extensión no encola una voz por
+bloque: espera a que te detengas y sintetiza solo el bloque donde paraste.
+Si te mueves mientras sintetiza, el audio anterior se descarta y no lo
+oirás. Al salir del modo (Escape), el audio en curso se corta.
 
 TIEMPOS DE ESPERA
 -----------------
 La síntesis corre en la CPU de tu equipo: la primera lectura puede tardar
-entre 1 y 3 minutos, y las siguientes entre 20 y 150 segundos. La
-miniventana queda en "Procesando voz..." mientras tanto.
+entre 1 y 3 minutos, y las siguientes entre 20 y 180 segundos según la
+carga del equipo. La miniventana queda en "Procesando voz..." mientras
+tanto.
+
+Si el motor rechaza la petición porque está ocupado (HTTP 429), la
+extensión reintenta sola hasta 4 veces antes de mostrar un error.
 
 La voz es "Don IA" (df54e121), clonada localmente en VoiceStudio.
 No se usa la voz del sistema ni ninguna voz de Jarvis.

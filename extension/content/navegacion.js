@@ -15,27 +15,26 @@ try {
     console.log('[LECTOR NAV] Content script loaded, window.__lectorNav =', window.__lectorNav);
 
   // ── Selectores ──────────────────────────────────────────────────────────
-  const SELECTOR = [
-    'h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,dt,dd,th,td,pre,caption',
-    'a[href],button,summary,input:not([type="hidden"]),select,textarea',
-    '[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="checkbox"],[role="switch"]',
-    'img[alt]'
-  ].join(',');
-
+  // Los selectores reales viven en recolectar(): alli se aplican reglas que
+  // un unico selector CSS no puede expresar (imagenes por alt/aria-label,
+  // botones solo-con-icono, texto visible).
   const PROSA = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','FIGCAPTION','DT','DD','TH','TD','PRE','CAPTION']);
-  const MAX_BLOQUES = 500;
+  // Techo de bloques por pagina. 500 se quedaban cortos en paginas de
+  // documentacion muy largas (MDN las truncaba); 1200 cubre la practica
+  // totalidad de la web sin volver el escaneo prohibitivo.
+  const MAX_BLOQUES = 1200;
 
   // ── Estado ──────────────────────────────────────────────────────────────
   let activo = false;
   let bloques = [];
   let indice = -1;
   let anillo = null;
-  let observador = null;
   let hablarTexto = '';
   let hablarTimer = null;
   let miniventana = null;
   let hablando = false;
   let reqSeq = 0;
+  let recalcTimer = null;
 
   // ── Miniventana flotante ───────────────────────────────────────────────
   function crearMiniventana() {
@@ -174,6 +173,7 @@ try {
     if (tag === 'A') return 'Enlace';
     if (tag === 'BUTTON' || role === 'button') return 'Botón';
     if (tag === 'IMG') return 'Imagen';
+    if (role === 'img') return 'Imagen';
     if (tag === 'LI') return 'Elemento lista';
     if (tag === 'BLOCKQUOTE') return 'Cita';
     if (tag === 'PRE') return 'Código';
@@ -187,7 +187,7 @@ try {
     if (tag === 'INPUT') {
       if (tipo === 'checkbox') return `Casilla ${el.checked?'marcada':'no marcada'}`;
       if (tipo === 'radio') return `Radio ${el.checked?'seleccionado':'no seleccionado'}`;
-      if (['submit','button','reset'].includes(tipo)) return 'Botón';
+      if (['submit','button','reset','image'].includes(tipo)) return 'Botón';
       return 'Campo texto';
     }
     if (el.closest('a[href]')) return 'Enlace';
@@ -195,7 +195,10 @@ try {
   }
 
   function visible(el) {
-    if (el.closest('script,style,noscript,template,svg,canvas,[hidden],[aria-hidden="true"],[contenteditable="true"]')) return false;
+    if (el.closest('script,style,noscript,template,canvas,[hidden],[aria-hidden="true"],[contenteditable="true"]')) return false;
+    // El contenido de un SVG es ruido (paths, defs). Se exceptua el propio
+    // SVG marcado como imagen, que aporta su etiqueta accesible.
+    if (el.closest('svg') && !el.matches('svg[role="img"]')) return false;
     try {
       if (el.checkVisibility) return el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
       const s = getComputedStyle(el); return s.display !== 'none' && s.visibility !== 'hidden';
@@ -209,12 +212,30 @@ try {
     const cand = [];
     for (const el of document.body.querySelectorAll(
       'h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,dt,dd,th,td,pre,caption,' +
-      'a[href],button,summary,input:not([type="hidden"]),select,textarea,' +
-      '[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="checkbox"],[role="switch"],img[alt]'
+      'a[href],button,summary,input:not([type="hidden"]),select,textarea,label,legend,' +
+      '[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="checkbox"],[role="switch"],' +
+      'img[alt],img[aria-label],[role="img"],input[type="image"]'
     )) {
       if (cand.length >= MAX_BLOQUES * 2) break;
       if (!visible(el)) continue;
-      const txt = (() => { const tag = el.tagName; if (tag === 'IMG') return norm(el.alt); if (['INPUT','TEXTAREA','SELECT'].includes(tag)) return norm(el.value || el.placeholder || '').slice(0, 2000); return norm(el.innerText || el.textContent || '').slice(0, 2000); })();
+      const txt = (() => {
+        const tag = el.tagName;
+        // Una imagen se narra por su etiqueta: alt, aria-label o title.
+        if (tag === 'IMG') return norm(el.getAttribute('alt') || el.getAttribute('aria-label') || el.getAttribute('title') || '').slice(0, 2000);
+        if (tag === 'INPUT') {
+          const tipo = (el.getAttribute('type') || '').toLowerCase();
+          if (tipo === 'image') return norm(el.getAttribute('alt') || el.value || '').slice(0, 2000);
+          return norm(el.value || el.placeholder || '').slice(0, 2000);
+        }
+        if (tag === 'TEXTAREA' || tag === 'SELECT') return norm(el.value || el.placeholder || '').slice(0, 2000);
+        // Botones y enlaces solo-con-icono: su nombre accesible es aria-label.
+        const aria = el.getAttribute('aria-label') || '';
+        const propio = norm(el.innerText || el.textContent || '');
+        if (!propio && (tag === 'A' || tag === 'BUTTON' || tag === 'SUMMARY' || el.getAttribute('role'))) {
+          return norm(aria || el.getAttribute('title') || '').slice(0, 2000);
+        }
+        return propio.slice(0, 2000);
+      })();
       if (!txt || txt.length < 2) continue;
       cand.push({ el, txt, prosa: PROSA.has(el.tagName) });
     }
@@ -257,7 +278,7 @@ try {
   }
 
   // ── Foco ────────────────────────────────────────────────────────────────
-  function enfocar(i) {
+  function enfocar(i, sinVoz) {
     if (!bloques.length) return;
     indice = Math.max(0, Math.min(bloques.length - 1, i));
     const b = bloques[indice];
@@ -279,7 +300,11 @@ try {
 
     const txt = `${b.rol ? b.rol + '. ' : ''}${b.txt}`;
     const fullTxt = b.rol ? `${b.rol}. ${b.txt}` : b.txt;
-    pedirVoz(txt, fullTxt);
+    // Al activar el modo se enfoca el primer bloque con un margen mas largo:
+    // el motor local tarda 35-240 s por sintesis, y si el usuario ya esta
+    // pulsando Tab ese trabajo se descarta. Con el margen, la primera Tab
+    // cancela la espera y el trabajo nunca llega al motor.
+    pedirVoz(txt, fullTxt, undefined, sinVoz ? ESPERA_LECTURA_INICIAL : undefined);
   }
 
   // ── Solicitud de voz (antirrebote) ─────────────────────────────────────
@@ -288,17 +313,31 @@ try {
   // audios viejos minutos despues, uno atras de otro. El antirrebote colapsa
   // la rafaga en una sola peticion: la del bloque donde se detuvo.
   const DEBOUNCE_MS = 700;
+  // Margen que se deja al usuario al activar el modo antes de narrar el
+  // primer bloque: si pulsa Tab antes, ese trabajo nunca llega al motor.
+  const ESPERA_LECTURA_INICIAL = 1800;
   let hablarDebounce = null;
 
-  function pedirVoz(txt, panelTexto, onDone) {
+  function pedirVoz(txt, panelTexto, onDone, delayMs) {
     if (hablarDebounce) { clearTimeout(hablarDebounce); hablarDebounce = null; }
     const seq = ++reqSeq;
+    // Aviso inmediato al service worker: si hay una sintesis en curso de otro
+    // bloque, su audio se descarta sin reproducirse.
+    try { chrome.runtime.sendMessage({ type: 'NAV_SEQ', seq }, () => {}); } catch {}
     const fullTxt = panelTexto ?? txt;
-    mostrarHablar(fullTxt.slice(0, 200), true);
+    // Con margen largo (primer bloque) el panel muestra el texto sin afirmar
+    // que ya se esta sintetizando: todavia no se pidio nada al motor.
+    const espera = delayMs ?? DEBOUNCE_MS;
+    if (espera <= DEBOUNCE_MS) mostrarHablar(fullTxt.slice(0, 200), true);
     hablarDebounce = setTimeout(() => {
       hablarDebounce = null;
+      if (espera > DEBOUNCE_MS) mostrarHablar(fullTxt.slice(0, 200), true);
       chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: txt, seq }, (resp) => {
         if (seq !== reqSeq) { onDone?.({ response: 'error', error: 'superseded' }); return; }
+        // El service worker descarto esta sintesis porque el usuario ya se
+        // movio a otro bloque: no es un error, solo hay que dejar el panel
+        // en espera de la peticion que sigue.
+        if (resp?.superseded) { onDone?.({ response: 'superseded' }); return; }
         if (resp?.ok) {
           mostrarHablar(fullTxt.slice(0, 200), false);
           // Auto-limpiar después de 25s
@@ -318,7 +357,7 @@ try {
           onDone?.({ response: 'error', error: resp?.error });
         }
       });
-    }, DEBOUNCE_MS);
+    }, delayMs ?? DEBOUNCE_MS);
   }
 
   function mover(d) {
@@ -355,10 +394,16 @@ try {
     mostrarMiniventana();
     recalcular();
     if (!bloques.length) { activo = false; return; }
-    const obs = new MutationObserver(() => { if (activo) recalcular(); });
+    // En sitios muy dinámicos (redes sociales, SPAs con streaming) el DOM
+    // muta sin parar. Re-escanear en cada mutacion Freeze la pagina, asi que
+    // los re-escaneos se agrupan: uno cada 300 ms.
+    const obs = new MutationObserver(() => {
+      if (!activo || recalcTimer) return;
+      recalcTimer = setTimeout(() => { recalcTimer = null; if (activo) recalcular(); }, 300);
+    });
     obs.observe(document.body, { childList: true, subtree: true, characterData: true });
     window.__lectorNavObs = obs;
-    enfocar(0);
+    enfocar(0, true);
   }
 
   function salir() {
@@ -368,10 +413,17 @@ try {
     if (hablarDebounce) { clearTimeout(hablarDebounce); hablarDebounce = null; }
     hablarTexto = '';
     hablando = false;
+    // El service worker invalida la sintesis en curso: si el usuario sale del
+    // modo, no debe seguir sonando el audio de un bloque anterior.
+    try { chrome.runtime.sendMessage({ type: 'NAV_CANCELAR' }, () => {}); } catch {}
     window.__lectorNavObs?.disconnect();
     window.__lectorNavObs = null;
+    if (recalcTimer) { clearTimeout(recalcTimer); recalcTimer = null; }
     document.querySelector('#lector-anillo')?.remove();
     document.querySelector('#lector-miniventana')?.remove();
+    // Se anulan las referencias: si no, al volver a entrar se reutilizaria el
+    // elemento ya eliminado del DOM y el anillo no se veria.
+    anillo = null;
     miniventana = null;
     delete document.documentElement.dataset.lectorNav;
   }
@@ -413,6 +465,18 @@ try {
         window.postMessage({ target: 'page', response: 'toggled', id }, '*');
       } else if (action === 'estado') {
         window.postMessage({ target: 'page', response: estado(), id }, '*');
+      } else if (action === 'inventario') {
+        // Diagnostico: lista completa de bloques detectados en la pagina.
+        // Consulta sin activar el modo, para no disparar ninguna sintesis.
+        if (!activo) recalcular();
+        window.postMessage({
+          target: 'page',
+          response: {
+            total: bloques.length,
+            bloques: bloques.map(b => ({ rol: b.rol, txt: b.txt.slice(0, 200), tag: b.el.tagName })),
+          },
+          id,
+        }, '*');
       } else if (action === 'hablar') {
         // hablar directo sin pasar por enfocar
         if (!activo || !bloques.length) {
@@ -439,8 +503,9 @@ try {
   // ── Toggle externo (icono/atajo) ────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'NAV_TOGGLE') {
-      if (activo) { activo = false; window.__lectorNavObs?.disconnect(); document.querySelector('#lector-anillo')?.remove(); document.querySelector('#lector-miniventana')?.remove(); miniventana = null; delete document.documentElement.dataset.lectorNav; }
-      else { entrar(); }
+      // Se usa salir()/entrar() para no duplicar la limpieza: salir() ademas
+      // invalida el audio en curso en el service worker.
+      if (activo) salir(); else entrar();
     }
     if (msg?.type === 'NAV_STATUS' && msg.status === 'hablando') {
       // La sintesis ya termino y el audio empezo a reproducirse.

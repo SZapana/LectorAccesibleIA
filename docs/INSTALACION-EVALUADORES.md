@@ -4,7 +4,7 @@ Sin costo, sin cuentas de pago, sin internet.
 
 ## Descarga directa
 
-**https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.1/LectorAccesibleIA-1.0.1.zip**
+**https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.1.0/LectorAccesibleIA-1.1.0.zip**
 
 (Repositorio: <https://github.com/SZapana/LectorAccesibleIA>)
 
@@ -22,7 +22,7 @@ Sin costo, sin cuentas de pago, sin internet.
 
 ### 2. Iniciar el proxy
 
-Descomprime el archivo `LectorAccesibleIA-1.0.1.zip` en una carpeta permanente (por ejemplo `Documentos\LectorAccesibleIA`) y, dentro de esa carpeta, haz doble clic en:
+Descomprime el archivo `LectorAccesibleIA-1.1.0.zip` en una carpeta permanente (por ejemplo `Documentos\LectorAccesibleIA`) y, dentro de esa carpeta, haz doble clic en:
 
 ```
 INICIAR-PROXY.bat
@@ -43,25 +43,31 @@ Comprobación rápida: abre `http://127.0.0.1:3902/health` en el navegador. Debe
 
 ### 4. Usarla
 
-1. Abre cualquier página web.
+1. Abre **cualquier** página web (no está atada a un sitio concreto).
 2. Pulsa `Alt+Shift+N` (o haz clic en el icono de la extensión).
 3. Atajos dentro del modo navegación:
 
 | Tecla | Acción |
 |---|---|
-| `Tab` | Bloque siguiente |
+| `Tab` | Bloque siguiente; al detenerte ~0,7 s, Don IA lo narra |
 | `Shift+Tab` | Bloque anterior |
-| `Enter` | Leer el bloque en voz alta (Don IA) |
+| `Enter` | Activa el enlace o botón del bloque; en un campo de texto, entra a escribir |
 | `Escape` | Salir del modo navegación |
 
 Una miniventana flotante aparece abajo a la derecha con el texto actual, el estado (Procesando / Hablando / Listo) y el contador de bloques.
+
+Las **imágenes** se narran por su etiqueta accesible (`alt`, `aria-label` o `title`): si una foto tiene `alt="Presidente de la comunidad"`, oirás *"Imagen. Presidente de la comunidad"*.
+
+### Cobertura medida
+
+El mismo código se probó en seis sitios de tecnologías distintas (React, MediaWiki, HTML plano, MDN, GitHub y un portal institucional). El número de bloques detectados va de 107 a 904 según la página. Los `iframe` no se narran; en los sitios medidos ninguno tenía contenido textual.
 
 ## Tiempos (importante)
 
 La síntesis corre en la CPU del equipo:
 
 - **Primera lectura**: entre 1 y 3 minutos (carga el modelo de voz).
-- **Lecturas siguientes**: entre 20 y 150 segundos.
+- **Lecturas siguientes**: entre 20 y 180 segundos, según la carga del equipo.
 
 Durante ese tiempo la miniventana queda en "Procesando voz...". No es un error: hay que esperar.
 
