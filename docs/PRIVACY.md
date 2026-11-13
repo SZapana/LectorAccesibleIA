@@ -1,6 +1,6 @@
 # Política de privacidad de Lector Accesible IA
 
-**Versión 1.0.0 — 12 de noviembre de 2026**
+**Versión 1.0.1 — 12 de noviembre de 2026**
 
 ## Resumen
 

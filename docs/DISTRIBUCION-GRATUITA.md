@@ -23,8 +23,9 @@ Fuentes:
 ## Vía 1 — GitHub Releases (recomendada, entrega inmediata) — **YA HECHA**
 
 - Repositorio: <https://github.com/SZapana/LectorAccesibleIA>
-- Release `v1.0.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
-- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.0/LectorAccesibleIA-1.0.0.zip>
+- Release `v1.0.1`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.1>
+- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.1/LectorAccesibleIA-1.0.1.zip>
+- Release anterior `v1.0.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
 
 El ZIP publicado se verificó descargándolo de la release y comparando su SHA256 con el archivo local: coinciden byte a byte.
 

@@ -4,7 +4,7 @@ Sin costo, sin cuentas de pago, sin internet.
 
 ## Descarga directa
 
-**https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.0/LectorAccesibleIA-1.0.0.zip**
+**https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.1/LectorAccesibleIA-1.0.1.zip**
 
 (Repositorio: <https://github.com/SZapana/LectorAccesibleIA>)
 
@@ -22,7 +22,7 @@ Sin costo, sin cuentas de pago, sin internet.
 
 ### 2. Iniciar el proxy
 
-Descomprime el archivo `LectorAccesibleIA-1.0.0.zip` en una carpeta permanente (por ejemplo `Documentos\LectorAccesibleIA`) y, dentro de esa carpeta, haz doble clic en:
+Descomprime el archivo `LectorAccesibleIA-1.0.1.zip` en una carpeta permanente (por ejemplo `Documentos\LectorAccesibleIA`) y, dentro de esa carpeta, haz doble clic en:
 
 ```
 INICIAR-PROXY.bat
