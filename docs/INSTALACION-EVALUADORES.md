@@ -2,6 +2,12 @@
 
 Sin costo, sin cuentas de pago, sin internet.
 
+## Descarga directa
+
+**https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.0/LectorAccesibleIA-1.0.0.zip**
+
+(Repositorio: <https://github.com/SZapana/LectorAccesibleIA>)
+
 ## Qué hay que tener
 
 - Brave, Chrome o Edge de escritorio.

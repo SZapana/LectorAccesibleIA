@@ -20,16 +20,29 @@ Fuentes:
 
 > Nota sobre Brave y Edge Add-ons: Edge Add-ons distribuye un instalador `.exe` de Edge, así que Brave no lo puede instalar solo. En Brave se instala la extensión descomprimida (o desde la Chrome Web Store, que exige pagar los US$5). Por eso el canal de GitHub + sideload es el que realmente sirve a este proyecto.
 
-## Vía 1 — GitHub Releases (recomendada, entrega inmediata)
+## Vía 1 — GitHub Releases (recomendada, entrega inmediata) — **YA HECHA**
 
-1. Crear un repositorio público (o privado con acceso para los evaluadores).
-2. Subir el contenido de `dist/LectorAccesibleIA-1.0.0.zip` y `extension/` como etiqueta `v1.0.0`.
-3. Crear la release y adjuntar el ZIP.
-4. Publicar el enlace en el informe del trabajo.
+- Repositorio: <https://github.com/SZapana/LectorAccesibleIA>
+- Release `v1.0.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.0>
+- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.0.0/LectorAccesibleIA-1.0.0.zip>
 
-Coste: 0. Sin revisión. Funciona en Brave, Chrome y Edge por carga descomprimida.
+El ZIP publicado se verificó descargándolo de la release y comparando su SHA256 con el archivo local: coinciden byte a byte.
 
-Alternativas equivalentes y también gratuitas: itch.io (página de descarga), GitHub Pages (documentación + botón de descarga), o el Drive del curso.
+Para publicar una versión nueva:
+
+```powershell
+node tools\empaquetar.js
+git add -A
+git commit -m "release: v1.0.1"
+git tag v1.0.1
+git push origin master --tags
+```
+
+y después crear la release en GitHub con el ZIP adjunto.
+
+### Alternativas equivalentes y también gratuitas
+
+itch.io (página de descarga), GitHub Pages (documentación + botón de descarga), o el Drive del curso.
 
 ## Vía 2 — Microsoft Edge Add-ons (tienda formal, sin cuota)
 
