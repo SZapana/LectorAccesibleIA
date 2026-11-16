@@ -15,7 +15,7 @@ Extensión de navegador (Chrome/Brave/Edge, Manifest V3) que recorre **cualquier
 
 | Tecla | Acción |
 |---|---|
-| `Tab` | Bloque siguiente (se narra al detenerte ~0,7 s) |
+| `Tab` | Bloque siguiente (se narra al detenerte ~0,3 s) |
 | `Shift+Tab` | Bloque anterior |
 | `Enter` | Activa el enlace o botón del bloque; en un campo de texto, entra a escribir |
 | `Escape` | Sale del modo navegación |
@@ -35,6 +35,38 @@ El mismo código se probó en seis sitios con motores distintos. El inventario e
 | `mozilla.org/es` | portal | 174 | 6 |
 
 Los `iframe` no se narran (el content script corre con `all_frames: false`). En los seis sitios medidos, ningún `iframe` tenía contenido textual: el único encontrado (municipal) estaba vacío.
+
+## v1.2.0 — GPU, caché de audio y prefetch
+
+La v1.1.0 medía **140-162 s por bloque** porque VoiceStudio estaba fijado a CPU (`compute_device: "cpu"` en `prefs.json`), no por falta de hardware: el equipo tiene una RTX 3050 con 4 GB y torch `2.8.0+cu128`.
+
+Con `compute_device: "auto"` y el backend reiniciado (`effective_family: "cuda"`), medido en esta máquina:
+
+| Bloque | Audio generado | Síntesis en GPU | Coste |
+|---|---|---|---|
+| 30 caracteres | 105 KB (2,2 s de audio) | **2,0 s** | 3,5 KB/carácter |
+| 181 caracteres | 593 KB (12,4 s) | **4,1 s** | 3,3 KB/carácter |
+| 1090 caracteres | 3,4 MB (70,6 s) | **21,5 s** | 3,1 KB/carácter |
+
+El motor genera ~3,3 veces más rápido que el tiempo real del audio. Sobre esa base, la v1.2.0 añade dos cosas:
+
+| Capa | Qué hace |
+|------|----------|
+| `background/service-worker.js` | **Caché de audio en IndexedDB** (clave `docId:hash(texto)`, tope de 128 MB, purga a las 24 h). El audio se guarda **siempre**, incluso cuando se descarta porque el usuario se movió: es justo el que se reutiliza al volver. |
+| `background/service-worker.js` | **Prefetch de ventana deslizante**: mientras suena el bloque N se generan N+1…N+4. Solo bloques de ≤300 caracteres (títulos, botones, enlaces), porque el motor no cancela trabajos y un párrafo largo bloquearía la demanda. La petición del usuario siempre tiene prioridad. |
+| `content/navegacion.js` | `docId` aleatorio por carga del documento: al recargar la página la caché se invalida sola, sin permisos ni eventos de navegación extra. Antirrebote reducido a **0,3 s** y margen inicial a **0,3 s** (antes 0,7 s y 1,8 s, dimensionados para síntesis de minutos). |
+
+Medido en Brave con perfil limpio contra el sitio municipal (107 bloques):
+
+```
+activación (síntesis fría) -> ▶ Hablando en  5817 ms
+Tab 1  (cache hit)         -> ▶ Hablando en   341 ms
+Tab 2  (cache hit)         -> ▶ Hablando en   356 ms
+Shift+Tab (vuelve)         -> ▶ Hablando en   358 ms
+caché: 3 entradas, 0,46 MB
+```
+
+Sin la GPU, el prefetch no tendría sentido: 904 bloques de MDN serían ~45 minutos de motor. Con GPU el límite real es el presupuesto de disco (128 MB ≈ 40 bloques medianos) y la VRAM, no el tiempo.
 
 ## v1.1.0 — cola coalescente y voz que se corta al cambiar de bloque
 
@@ -80,8 +112,9 @@ Prueba end-to-end en Brave con la extensión cargada descomprimida (`test-verify
 ## Descarga
 
 - Repositorio: <https://github.com/SZapana/LectorAccesibleIA>
-- Release `v1.1.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.1.0>
-- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.1.0/LectorAccesibleIA-1.1.0.zip>
+- Release `v1.2.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.2.0>
+- ZIP: <https://github.com/SZapana/LectorAccesibleIA/releases/download/v1.2.0/LectorAccesibleIA-1.2.0.zip>
+- Release anterior `v1.1.0`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.1.0>
 - Release anterior `v1.0.1`: <https://github.com/SZapana/LectorAccesibleIA/releases/tag/v1.0.1>
 
 ## Estructura

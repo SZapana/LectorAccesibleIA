@@ -36,6 +36,32 @@ try {
   let reqSeq = 0;
   let recalcTimer = null;
 
+  // Identifica esta carga del documento. El service worker cachea el audio
+  // con la clave `docId:hash(texto)`, asi que al recargar la pagina el docId
+  // cambia y la cache vieja deja de usarse sin escuchar eventos de navegacion.
+  // crypto.getRandomValues existe tambien en paginas sin HTTPS.
+  const docId = (() => {
+    try {
+      const a = new Uint8Array(8);
+      crypto.getRandomValues(a);
+      return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+  })();
+
+  // Cuantos bloques siguientes se pregeneran mientras se escucha el actual.
+  // Con la GPU el motor va 3,3x mas rapido que el audio, asi que una ventana
+  // de 4 nunca se queda atras. El prefetch solo cubre bloques cortos (el
+  // limite vive en el service worker): un parrafo largo bloquearia la demanda
+  // porque el motor no cancela jobs.
+  const PREFETCH_K = 4;
+
+  function textoDe(b) {
+    if (!b) return '';
+    return b.rol ? `${b.rol}. ${b.txt}` : b.txt;
+  }
+
   // ── Miniventana flotante ───────────────────────────────────────────────
   function crearMiniventana() {
     if (miniventana) return;
@@ -298,24 +324,42 @@ try {
     document.documentElement.dataset.lectorNav = `${indice + 1}/${bloques.length}`;
     actualizarMiniventana();
 
-    const txt = `${b.rol ? b.rol + '. ' : ''}${b.txt}`;
-    const fullTxt = b.rol ? `${b.rol}. ${b.txt}` : b.txt;
-    // Al activar el modo se enfoca el primer bloque con un margen mas largo:
-    // el motor local tarda 35-240 s por sintesis, y si el usuario ya esta
-    // pulsando Tab ese trabajo se descarta. Con el margen, la primera Tab
-    // cancela la espera y el trabajo nunca llega al motor.
+    const txt = textoDe(b);
+    const fullTxt = txt;
+    // Al activar el modo se enfoca el primer bloque con un margen corto: con
+    // la GPU una sintesis cuesta 2-21 s, asi que ya no hace falta esperar
+    // segundos por si el usuario pulsa Tab enseguida.
     pedirVoz(txt, fullTxt, undefined, sinVoz ? ESPERA_LECTURA_INICIAL : undefined);
   }
 
+  // Pide en segundo plano los bloques que vienen despues del actual. Se
+  // envia DESPUES de la peticion de voz: si llegara antes, el motor arrancaria
+  // con el prefetch y el bloque que el usuario esta esperando tendria que
+  // esperar detras de el. El service worker descarta los que superan el limite
+  // de tamaño o ya estan en cache, y la demanda siempre tiene prioridad.
+  function pedirPrefetch() {
+    try {
+      const textos = [];
+      for (let k = 1; k <= PREFETCH_K; k++) {
+        const sig = bloques[indice + k];
+        if (!sig) break;
+        textos.push(textoDe(sig));
+      }
+      if (!textos.length) return;
+      chrome.runtime.sendMessage({ type: 'NAV_PREFETCH', docId, textos }, () => {});
+    } catch {}
+  }
+
   // ── Solicitud de voz (antirrebote) ─────────────────────────────────────
-  // El motor local procesa una sintesis por vez y en CPU tarda 40-240 s. Si
-  // cada pulsacion de Tab encolara su propia sintesis, el usuario oiria los
-  // audios viejos minutos despues, uno atras de otro. El antirrebote colapsa
-  // la rafaga en una sola peticion: la del bloque donde se detuvo.
-  const DEBOUNCE_MS = 700;
+  // El motor local procesa una sintesis por vez. Si cada pulsacion de Tab
+  // encolara su propia sintesis, el usuario oiria los audios viejos uno atras
+  // de otro. El antirrebote colapsa la rafaga en una sola peticion: la del
+  // bloque donde se detuvo.
+  const DEBOUNCE_MS = 300;
   // Margen que se deja al usuario al activar el modo antes de narrar el
   // primer bloque: si pulsa Tab antes, ese trabajo nunca llega al motor.
-  const ESPERA_LECTURA_INICIAL = 1800;
+  // Con GPU (2-21 s por sintesis) basta un margen corto.
+  const ESPERA_LECTURA_INICIAL = 300;
   let hablarDebounce = null;
 
   function pedirVoz(txt, panelTexto, onDone, delayMs) {
@@ -332,7 +376,7 @@ try {
     hablarDebounce = setTimeout(() => {
       hablarDebounce = null;
       if (espera > DEBOUNCE_MS) mostrarHablar(fullTxt.slice(0, 200), true);
-      chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: txt, seq }, (resp) => {
+      chrome.runtime.sendMessage({ type: 'NAV_HABLAR', texto: txt, seq, docId }, (resp) => {
         if (seq !== reqSeq) { onDone?.({ response: 'error', error: 'superseded' }); return; }
         // El service worker descarto esta sintesis porque el usuario ya se
         // movio a otro bloque: no es un error, solo hay que dejar el panel
@@ -357,6 +401,9 @@ try {
           onDone?.({ response: 'error', error: resp?.error });
         }
       });
+      // El prefetch se pide DESPUES de la demanda: el mensaje de voz ya salio,
+      // asi que el service worker atiende primero el bloque actual.
+      pedirPrefetch();
     }, delayMs ?? DEBOUNCE_MS);
   }
 
@@ -415,7 +462,7 @@ try {
     hablando = false;
     // El service worker invalida la sintesis en curso: si el usuario sale del
     // modo, no debe seguir sonando el audio de un bloque anterior.
-    try { chrome.runtime.sendMessage({ type: 'NAV_CANCELAR' }, () => {}); } catch {}
+    try { chrome.runtime.sendMessage({ type: 'NAV_CANCELAR', docId }, () => {}); } catch {}
     window.__lectorNavObs?.disconnect();
     window.__lectorNavObs = null;
     if (recalcTimer) { clearTimeout(recalcTimer); recalcTimer = null; }

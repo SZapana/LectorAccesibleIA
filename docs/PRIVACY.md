@@ -1,6 +1,6 @@
 # Política de privacidad de Lector Accesible IA
 
-**Versión 1.1.0 — 13 de noviembre de 2026**
+**Versión 1.2.0 — 16 de noviembre de 2026**
 
 ## Resumen
 
@@ -19,6 +19,7 @@ Lector Accesible IA no recopila, transmite, almacena en servidores ni vende ning
 - **Texto de la página**: se procesa en el navegador, en la memoria de la pestaña. No se envía a ningún servicio.
 - **Texto que se sintetiza**: viaja por la red local (`127.0.0.1`) hasta VoiceStudio, que corre en el mismo equipo. No sale del equipo.
 - **Audio generado**: se reproduce en el equipo. No se guarda en ningún servidor.
+- **Caché de audio local**: para no volver a sintetizar un bloque ya leído, el audio se guarda en IndexedDB dentro del navegador (`lector-cache`), con un tope de 128 MB y purga a las 24 h. Se borra al recargar la página o al desinstalar la extensión, y nunca se transmite.
 
 ## Datos que no se recopilan
 

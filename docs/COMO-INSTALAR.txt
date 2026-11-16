@@ -84,10 +84,12 @@ oirás. Al salir del modo (Escape), el audio en curso se corta.
 
 TIEMPOS DE ESPERA
 -----------------
-La síntesis corre en la CPU de tu equipo: la primera lectura puede tardar
-entre 1 y 3 minutos, y las siguientes entre 20 y 180 segundos según la
-carga del equipo. La miniventana queda en "Procesando voz..." mientras
-tanto.
+La síntesis corre en la GPU de tu equipo: la primera lectura puede tardar
+entre 3 y 10 segundos, y las siguientes entre 2 y 21 segundos según el
+tamaño del bloque. Volver a un bloque ya leído es instantáneo: el audio
+queda guardado en una caché local del navegador y se reutiliza.
+
+La miniventana queda en "Procesando voz..." mientras tanto.
 
 Si el motor rechaza la petición porque está ocupado (HTTP 429), la
 extensión reintenta sola hasta 4 veces antes de mostrar un error.
